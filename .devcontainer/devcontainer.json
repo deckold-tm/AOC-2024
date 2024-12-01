@@ -1,0 +1,8 @@
+{
+    "image": "haskell:9-slim",
+    "customizations": {
+        "vscode": {
+            "extensions": ["haskell.haskell"]
+        }
+    }
+}
