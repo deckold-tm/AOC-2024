@@ -1,5 +1,5 @@
 {
-    "image": "haskell:9-slim",
+    "build": {"dockerfile": "dockerfile"},
     "customizations": {
         "vscode": {
             "extensions": ["haskell.haskell"]

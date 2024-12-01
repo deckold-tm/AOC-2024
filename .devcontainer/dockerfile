@@ -1,0 +1,4 @@
+FROM haskell:9-slim
+RUN apt-get update && export DEBIAN_FROMTEND=noninterative
+RUN cabal update
+RUN cabal install haskell-language-server
