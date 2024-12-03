@@ -1,15 +1,13 @@
 module Main where
 
+import Control.Exception (throw)
 import Control.Monad.Trans
+import Control.Monad.Trans.Except (runExceptT)
 import Control.Monad.Trans.Maybe
 import Data.Maybe (listToMaybe)
 import System.Environment
-import System.IO
+import System.IO.Error (isDoesNotExistError, isUserError)
 import Utils (readFileFromArg)
-import Control.Monad.Trans.Except (runExceptT)
-import System.IO.Error ( isDoesNotExistError, isUserError )
-import Control.Exception (throw)
-
 
 main :: IO ()
 main = do
@@ -23,9 +21,9 @@ main = do
 
 run :: String -> IO ()
 run content = do
-  parsedData <- getData content 
+  parsedData <- getData content
   countSafe <- return (length $ filter isSafe $ map finiteDifference parsedData)
-  countSafeDamped <- return $ length .filter id $ map tryDamped parsedData
+  countSafeDamped <- return $ length . filter id $ map tryDamped parsedData
   putStrLn "The answer to part 1 is:"
   putStrLn $ show countSafe
   putStrLn "The answer to part 2 is:"
