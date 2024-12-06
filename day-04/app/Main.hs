@@ -2,7 +2,6 @@ module Main where
 
 import Control.Monad.Trans.Except
 import Data.Array
-import Debug.Trace
 import System.Environment
 import System.IO.Error
 import Utils
@@ -26,7 +25,7 @@ toArray content = do
   putStrLn $ "The answer to part 1 is:"
   putStrLn $ show $ sum $ map fromEnum $ map matches $ concat $ getAll matrix
   putStrLn $ "The answer to part 2 is:"
-  bools <- return  $ (map . map)  matchesMas $  getCross matrix
+  bools <- return $ (map . map) matchesMas $ getCross matrix
   putStrLn $ show $ sum $ map fromEnum $ map (all id) bools
   where
     -- putStrLn $ show $ padded'
@@ -89,7 +88,7 @@ getCross matrix = map (func matrix) (range $ bounds' matrix)
       ]
     getDiag' matrix (y, x) =
       [ matrix ! (y', x')
-      | (y', x') <- zip [y + 1,y,y - 1] [x - 1 .. x + 1]
+      | (y', x') <- zip [y + 1, y, y - 1] [x - 1 .. x + 1]
       ]
 
 matchesMas :: String -> Bool
