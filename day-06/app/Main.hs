@@ -1,15 +1,14 @@
 module Main where
 
 import Control.Exception
-import Control.Monad.Trans.State.Lazy
+import Control.Monad.Trans.State.Strict
 import Data.Array
-import Data.Ix (inRange)
-import Data.List (findIndex)
+import Data.List (findIndex, findIndices)
 import Data.Maybe (fromJust)
-import Debug.Trace
-import Text.Parsec (ParseError, char, many1, newline, oneOf, optional, parse, (<|>))
+import Text.Parsec (ParseError, char, many1, newline, oneOf, optional, parse, (<|>), )
 import Text.Parsec.String
 import Utils
+import Data.HashSet (member, empty, insert, HashSet)
 
 type Bounds = ((Int, Int), (Int, Int))
 
@@ -22,21 +21,18 @@ myTask :: AOC
 myTask content = do
   size <- mapSize content
   mapList <- return $ parseMapCharacter content
-  mapList <- case mapList of
+  mapList' <- case mapList of
     Right m -> return m
     Left err -> throw err
-  parsedMap <- parseMap size mapList
-  -- return $ (show  parsedMap, Nothing)
-  return (sumVisited $ runGuard parsedMap, Nothing)
+  parsedMap <- parseMap size mapList'
+  return (
+    sumVisited $ runGuard parsedMap, 
+    Just $ show $ countLoops $ tryAll parsedMap
+    )
 
 parseMap :: (Monad m) => Bounds -> [a] -> m (Array2d a)
 parseMap b a = return $ listArray b a
 
--- sumObst :: Monad m => Array s MapElement -> m Int
--- sumObst a = do
---     v <- return $ elems a
---     obsts <- return $ filter id $  map (==Obst) v
---     return $ length obsts
 sumObst :: Array i MapElement -> String
 sumObst a = show $ length $ filter id $ map (== Obst) $ elems a
 sumVisited :: Array i MapElement -> String
@@ -44,7 +40,7 @@ sumVisited a = show $ (+1) $ length $ filter id $ map (== Empty True) $ elems a
 
 mapSize :: (Monad m) => String -> m Bounds
 mapSize content = do
-  ls <- return $ lines content
+  ls <- return $ lines content 
   height <- return $ length ls
   width <- return $ length $ head ls
   return ((1, 1), (width, height))
@@ -69,7 +65,10 @@ instance Show MapElement where
   show Obst = "#"
   show (Empty False) = "."
   show (Empty True) = "X"
-  show (Guard _) = "g"
+  show (Guard North) = "^"
+  show (Guard East) = ">"
+  show (Guard South) = "v"
+  show (Guard West) = "<"
 
 parseMapCharacter :: String -> Either ParseError [MapElement]
 parseMapCharacter = parse (many1 (parseEmpty <|> parseObstruction <|> parseGuard)) "Parse Map"
@@ -99,6 +98,7 @@ moveGuard = do
     Nothing -> return ()
     Just n -> put $ execState moveGuard n
 
+runGuard :: Array2d MapElement -> Array2d MapElement
 runGuard = execState $  moveGuard
 
 curGuard :: Array2d MapElement -> ((Int, Int), Orientation)
@@ -135,3 +135,30 @@ moveOrTurn cur = do
       let (idx, o) = curGuard cur
        in cur // [(idx, Empty True), (nextIdx, Guard o)]
     Guard _ -> undefined
+
+checkLoop :: (HashSet String, Array2d MapElement) ->  Bool
+checkLoop = evalState moveGuardLoop
+
+tryAll :: Array2d MapElement -> [Bool]
+tryAll cur = let
+  vals = findIndices (\v -> (==Empty False) v || (== Empty True) v) $ elems cur
+  idxs = indices cur 
+  initMap = [cur // [(idxs !! i, Obst)] | i <- vals ]
+  in map checkLoop $ take 10 $ zip (repeat (empty:: HashSet String) ) initMap
+
+countLoops :: [Bool] -> Int
+countLoops i = length $ filter id i
+
+moveGuardLoop :: (Monad m) => StateT (HashSet String,(Array2d MapElement)) m (Bool)
+moveGuardLoop = do
+  (prev, cur) <- get
+  nextPlace <- return $ moveOrTurn cur
+  stateString <- return $ show $ fmap elems nextPlace
+  case member stateString prev of
+    False -> case nextPlace of
+      Nothing -> return False
+      Just n -> do
+        (s, m) <- return $ runState moveGuardLoop (insert stateString prev, n)
+        put m
+        return s
+    True -> return True
