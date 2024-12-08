@@ -1,9 +1,9 @@
 module Main where
 
-import Control.Exception
+import Control.Parallel.Strategies (parMap, rdeepseq)
 import Control.Monad.Trans.State.Strict
 import Data.Array
-import Data.List (findIndex, findIndices)
+import Data.List ( findIndices , elemIndex)
 import Data.Maybe (fromJust)
 import Text.Parsec (ParseError, char, many1, newline, oneOf, optional, parse, (<|>), )
 import Text.Parsec.String
@@ -20,10 +20,10 @@ main = runTask myTask
 myTask :: AOC
 myTask content = do
   size <- mapSize content
-  mapList <- return $ parseMapCharacter content
+  let mapList = parseMapCharacter content
   mapList' <- case mapList of
     Right m -> return m
-    Left err -> throw err
+    Left _ ->  undefined 
   parsedMap <- parseMap size mapList'
   return (
     sumVisited $ runGuard parsedMap, 
@@ -40,9 +40,9 @@ sumVisited a = show $ (+1) $ length $ filter id $ map (== Empty True) $ elems a
 
 mapSize :: (Monad m) => String -> m Bounds
 mapSize content = do
-  ls <- return $ lines content 
-  height <- return $ length ls
-  width <- return $ length $ head ls
+  let ls = lines content 
+  let height = length ls
+  let width = length $ head ls
   return ((1, 1), (width, height))
 
 data MapElement = Obst | Guard {orientation :: Orientation} | Empty {isVisted :: Bool}
@@ -90,21 +90,21 @@ mapDirection c = case c of
   '<' -> return $ Guard West
   _ -> undefined
 
-moveGuard :: (Monad m) => StateT ((Array2d MapElement)) m ()
+moveGuard :: (Monad m) => StateT (Array2d MapElement) m ()
 moveGuard = do
   cur <- get
-  nextPlace <- return $ moveOrTurn cur
+  let nextPlace = moveOrTurn cur
   case nextPlace of
     Nothing -> return ()
     Just n -> put $ execState moveGuard n
 
 runGuard :: Array2d MapElement -> Array2d MapElement
-runGuard = execState $  moveGuard
+runGuard = execState  moveGuard
 
 curGuard :: Array2d MapElement -> ((Int, Int), Orientation)
 curGuard cur =
   let elements = elems cur
-      guardIdx = indices cur !! (fromJust $ findIndex (== (Guard North)) elements)
+      guardIdx = indices cur !! fromJust ( elemIndex (Guard North) elements)
       orient = orientation $ cur ! guardIdx
    in (guardIdx, orient)
 
@@ -117,13 +117,11 @@ ahead :: Array2d MapElement -> Maybe (Int, Int)
 ahead cur =
   let ((h, w), orient) = curGuard cur
       n = case orient of
-        North -> ((h - 1), w)
+        North -> (h - 1, w)
         East -> (h, w + 1)
         South -> (h + 1, w)
         West -> (h, w - 1)
-   in case inRange (bounds cur) n of
-        True -> return n
-        False -> Nothing
+      in if inRange (bounds cur) n then return n else Nothing 
 
 moveOrTurn :: Array2d MapElement -> Maybe (Array2d MapElement)
 moveOrTurn cur = do
@@ -144,21 +142,21 @@ tryAll cur = let
   vals = findIndices (\v -> (==Empty False) v || (== Empty True) v) $ elems cur
   idxs = indices cur 
   initMap = [cur // [(idxs !! i, Obst)] | i <- vals ]
-  in map checkLoop $ take 10 $ zip (repeat (empty:: HashSet String) ) initMap
+  in parMap rdeepseq checkLoop $ zip (repeat (empty:: HashSet String) ) initMap
 
 countLoops :: [Bool] -> Int
 countLoops i = length $ filter id i
 
-moveGuardLoop :: (Monad m) => StateT (HashSet String,(Array2d MapElement)) m (Bool)
+moveGuardLoop :: (Monad m) => StateT (HashSet String,Array2d MapElement) m Bool
 moveGuardLoop = do
   (prev, cur) <- get
-  nextPlace <- return $ moveOrTurn cur
-  stateString <- return $ show $ fmap elems nextPlace
-  case member stateString prev of
-    False -> case nextPlace of
+  let nextPlace = moveOrTurn cur
+  let stateString = show $ fmap elems nextPlace
+  if member stateString prev then
+    case nextPlace of
       Nothing -> return False
       Just n -> do
         (s, m) <- return $ runState moveGuardLoop (insert stateString prev, n)
         put m
         return s
-    True -> return True
+    else return True

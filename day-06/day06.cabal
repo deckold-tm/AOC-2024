@@ -51,7 +51,7 @@ extra-doc-files:    CHANGELOG.md
 -- extra-source-files:
 
 common warnings
-    ghc-options: -Wall
+    ghc-options: -Wall -threaded -rtsopts
 
 executable day06
     -- Import common warning flags.
@@ -67,7 +67,7 @@ executable day06
     -- other-extensions:
 
     -- Other library packages from which modules are imported.
-    build-depends:    base ^>=4.20.0.0, utils, transformers, parsec, array, unordered-containers
+    build-depends:    base ^>=4.16.4.0, utils, transformers, parsec, array, unordered-containers, parallel
 
     -- Directories containing source files.
     hs-source-dirs:   app
