@@ -68,7 +68,7 @@ executable day01
 
     -- Other library packages from which modules are imported.
     build-depends:    
-         base ^>=4.20.0.0,
+         base ^>=4.16.4.0,
         transformers,
         mtl 
 
