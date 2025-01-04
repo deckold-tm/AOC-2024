@@ -3,12 +3,16 @@ module Main where
 import Control.Parallel.Strategies (parMap, rdeepseq)
 import Control.Monad.Trans.State.Strict
 import Data.Array
-import Data.List ( findIndices , elemIndex, find )
-import Data.Maybe (fromJust)
-import Text.Parsec (ParseError, char, many1, newline, oneOf, optional, parse, (<|>), )
+import Data.List ( findIndices , elemIndex, find , uncons)
+import Data.Maybe (fromJust )
+-- import Data.Either
+import Text.Parsec (ParseError, char, many1, newline, oneOf, optional, parse, (<|>))
 import Text.Parsec.String
 import Utils
--- import Debug.Trace
+import Debug.Trace
+
+max_iter :: Int
+max_iter = 15000 :: Int
 
 type Bounds = ((Int, Int), (Int, Int))
 
@@ -23,11 +27,11 @@ myTask content = do
   let mapList = parseMapCharacter content
   mapList' <- case mapList of
     Right m -> return m
-    Left _ ->  undefined 
+    Left _ ->  undefined
   parsedMap <- parseMap size mapList'
   return (
-    -- (trace $ showMap $ runGuard parsedMap) $ sumVisited $ runGuard parsedMap, 
-    sumVisited $ runGuard parsedMap, 
+    -- (trace $ showMap $ runGuard parsedMap) $ sumVisited $ runGuard parsedMap,
+    sumVisited $ runGuard parsedMap,
     Just $ show $ countLoops $ tryVisited parsedMap
     )
 
@@ -41,9 +45,9 @@ sumVisited a = show $ length $ filter id $ map isVisited $ elems a
 
 mapSize :: (Monad m) => String -> m Bounds
 mapSize content = do
-  let ls = lines content 
+  let ls = lines content
   let height = length ls
-  let width = length $ head ls
+  let width = length $ fromJust $ fst <$> uncons ls
   return ((1, 1), (width, height))
 
 -- data MapElement = Obst | Guard {orientation :: Orientation} | Empty EmptyState
@@ -110,10 +114,7 @@ instance Show MapElement where
   show Obst = "#"
   show (Empty UnVisited _) = "."
   show (Empty Visited dir) = show $ length dir
-  show (Guard North) = "^"
-  show (Guard East) = ">"
-  show (Guard South) = "v"
-  show (Guard West) = "<"
+  show (Guard a) = show a
 
 parseMapCharacter :: String -> Either ParseError [MapElement]
 parseMapCharacter = parse (many1 (parseEmpty <|> parseObstruction <|> parseGuard)) "Parse Map"
@@ -146,10 +147,18 @@ moveGuard carry_dir = do
       Empty _ dir -> put $ execState (moveGuard dir) n
       _ -> undefined
 
+moveGuard2 :: [Orientation] -> Array2d MapElement -> Maybe (Array2d MapElement)
+moveGuard2 carry_dir cur = do
+  nextPlace <- moveOrTurn carry_dir cur
+  undefined
+
+
+
 runGuard :: Array2d MapElement -> Array2d MapElement
 runGuard = execState $ moveGuard []
 
-curGuard :: Array2d MapElement -> ((Int, Int), Orientation)
+type GuardStatus = ((Int,Int), Orientation)
+curGuard :: Array2d MapElement -> GuardStatus
 curGuard cur =
   let elements = elems cur
       guardIdx = indices cur !! fromJust ( elemIndex (Guard North) elements)
@@ -161,15 +170,30 @@ checkAhead cur = do
   new <- ahead cur
   return $ cur ! new
 
-ahead :: Array2d MapElement -> Maybe (Int, Int)
-ahead cur =
-  let ((h, w), orient) = curGuard cur
-      n = case orient of
+checkAhead' :: Array2d MapElement -> GuardStatus -> Maybe MapElement
+checkAhead' cur gs = do
+  new <- ahead' cur gs
+  return $ cur ! new
+
+ahead' :: Array2d MapElement -> GuardStatus -> Maybe (Int, Int)
+ahead' cur ((h,w),orient) =
+  let n = case orient of
         North -> (h - 1, w)
         East -> (h, w + 1)
         South -> (h + 1, w)
         West -> (h, w - 1)
-      in if inRange (bounds cur) n then return n else Nothing 
+  in if inRange (bounds cur) n then return n else Nothing
+
+ahead :: Array2d MapElement -> Maybe (Int, Int)
+ahead cur =
+  let guardStatus = curGuard cur
+  in ahead' cur guardStatus
+      -- n = case orient of
+      --   North -> (h - 1, w)
+      --   East -> (h, w + 1)
+      --   South -> (h + 1, w)
+      --   West -> (h, w - 1)
+      -- in if inRange (bounds cur) n then return n else Nothing
 
 moveOrTurn :: [Orientation] -> Array2d MapElement -> Maybe (Array2d MapElement)
 moveOrTurn carry_dir cur = do
@@ -178,13 +202,39 @@ moveOrTurn carry_dir cur = do
   return $ case a of
     Obst -> cur // [let (idx, o) = curGuard cur in (idx, Guard $ next o)]
     Empty _ _ ->
-      let 
+      let
         (idx, o) = curGuard cur
         in cur // [(idx, updateEmpty carry_dir o), (nextIdx, Guard o)]
     Guard _ -> undefined
 
-checkLoop :: Array2d MapElement ->Bool
-checkLoop x =  evalState (moveGuardLoop2 []) (0,x)
+data LoopOrExit = Exit | Loop
+
+maybeToExit :: Maybe a -> Either LoopOrExit a
+maybeToExit Nothing = Left Exit
+maybeToExit (Just a) = Right a
+
+moveOrTurn2 :: [Orientation] -> Array2d MapElement -> Either LoopOrExit (Array2d MapElement, [Orientation])
+moveOrTurn2 carry_dir cur = do
+  let guard_status = curGuard cur
+  a <- maybeToExit $ checkAhead' cur guard_status
+  nextIdx <- maybeToExit $ ahead' cur guard_status
+  case a of
+    Obst ->
+      let (idx, o) = guard_status
+      in return $ (cur // [(idx, Guard $ next o)], o:carry_dir)
+    Empty _ prev_o ->
+      let (idx, o) = guard_status
+      in
+        if
+          o `elem` prev_o
+        then trace ((showMap cur)) $ Left Loop
+        -- then Left Loop
+        else return $ (cur // [(idx, updateEmpty carry_dir o), (nextIdx, Guard o)], prev_o)
+    Guard _ -> undefined
+
+checkLoop ::  Array2d MapElement -> Bool
+-- checkLoop x =   moveGuardLoop3 $ TrackGuard {curMap = x, nIter = 0, carryState = []}
+checkLoop = moveGuardLoop4 [] 0
 
 tryVisited ::Array2d MapElement -> [Bool]
 tryVisited cur = let
@@ -201,12 +251,49 @@ tryVisited cur = let
 tryAll :: Array2d MapElement -> [Bool]
 tryAll cur = let
   vals = findIndices isEmpty  $ elems cur
-  idxs = indices cur 
+  idxs = indices cur
   initMap = [cur // [(idxs !! i, Obst)] | i <- vals ]
   in parMap rdeepseq checkLoop initMap
 
 countLoops :: [Bool] -> Int
 countLoops = length . filter id
+
+data TrackGuard = TrackGuard {curMap :: (Array2d MapElement), nIter :: Int, carryState:: [Orientation]}
+
+moveGuardLoop4 :: [Orientation] -> Int -> Array2d MapElement -> Bool
+moveGuardLoop4 carry_dir n cur = --if n >= max_iter then True else
+  let
+    next_map = moveOrTurn2 carry_dir cur
+  in
+    case next_map of
+      Left Exit -> False
+      Left Loop -> True
+      Right (m, s) -> moveGuardLoop4 s (succ n) m
+
+moveGuardLoop3 :: TrackGuard -> Bool
+moveGuardLoop3 prev_state = if (nIter prev_state) >= max_iter
+    then
+      True
+    else
+      let
+        next_pos = checkAhead' (curMap prev_state) ((h,w),guard_dir)
+        next_map = moveOrTurn (carryState prev_state) (curMap prev_state)
+        ((h,w), guard_dir) = curGuard (curMap prev_state)
+      in
+        case next_pos of
+          Nothing -> False
+          Just el -> case el of
+            Obst -> moveGuardLoop3 $ TrackGuard {curMap = (fromJust next_map),  nIter=(nIter prev_state), carryState=[]}
+            Empty UnVisited _ -> moveGuardLoop3 $ TrackGuard {curMap = (fromJust next_map), nIter=(succ $ nIter prev_state), carryState=[]}
+            Empty Visited dir ->
+              if guard_dir `elem` dir
+                then
+                  True
+                else
+                  moveGuardLoop3 $ TrackGuard {curMap=(fromJust next_map), nIter=(succ $ nIter prev_state), carryState=(carryState prev_state)}
+            Guard _ -> undefined
+
+
 
 moveGuardLoop2 :: (Monad m) => [Orientation] -> StateT (Int, Array2d MapElement) m Bool
 moveGuardLoop2 carry_state = do
@@ -217,13 +304,13 @@ moveGuardLoop2 carry_state = do
   case a of
     Nothing -> return False
     Just e -> case e of
-      Obst -> 
+      Obst ->
         if c >= 2500 then return True else do
-            (s, m) <- return $ runState (moveGuardLoop2 []) (c, fromJust nextPlace) 
+            (s, m) <- return $ runState (moveGuardLoop2 []) (c, fromJust nextPlace)
             put m
             return s
       Empty UnVisited _ -> do
-        (s, m) <- return $ runState (moveGuardLoop2 []) (c+1,fromJust nextPlace) 
+        (s, m) <- return $ runState (moveGuardLoop2 []) (c+1,fromJust nextPlace)
         put m
         return s
       Empty Visited dir ->
@@ -231,7 +318,7 @@ moveGuardLoop2 carry_state = do
         -- if (guard_dir `elem`  dir) || (length dir>4) || c >=50000 then trace (show cur) $ return True
         -- if (guard_dir `elem` dir) || (length dir>4) || c >=25000 then trace (concatMap show dir++"\n"++showMap cur) $ return True
         -- if guard_dir `elem` dir then return True
-      -- Empty _ dir -> 
+      -- Empty _ dir ->
       --   if sameDirection go dir then (trace $ show $ elems cur) $ return True
         else do
           (s, m) <- return $ runState (moveGuardLoop2 dir) (c+1,fromJust nextPlace)
